@@ -24,7 +24,7 @@ public class Patron
 
      // Navigation property for the one-to-many relationship with Checkouts
     public ICollection<Checkout > Checkouts { get; set; } = new List<Checkout>();
-  public decimal Balance // Total unpaid late fees
+public decimal Balance // Total unpaid late fees
 {
     get
     {
@@ -33,26 +33,15 @@ public class Patron
         // Process checkouts to calculate total balance
         foreach (var checkout in Checkouts)
         {
-            if (checkout.LateFee.HasValue)
-            {
-                Console.WriteLine($"DEBUG: Checkout ID {checkout.Id}, LateFee: {checkout.LateFee.Value}");
-            }
-            else
-            {
-                Console.WriteLine($"DEBUG: Checkout ID {checkout.Id} has no LateFee.");
-            }
-
             if (checkout.LateFee.HasValue && checkout.LateFee.Value > 0)
             {
                 totalBalance += checkout.LateFee.Value;
             }
         }
 
-        Console.WriteLine($"DEBUG: Total balance for Patron ID {Id}, Name: {FirstName} {LastName} is {totalBalance}");
         return totalBalance;
     }
 }
-
 
     // Check if all fees are paid dynamically
     public bool AllFeesPaid

@@ -507,12 +507,6 @@ app.MapGet("api/patrons/lateFees", (LacontesLibraryDbContext db) =>
             Balance = patron.Balance // Dynamically calculated
         }).ToList();
 
-        // Log final balances
-        foreach (var patron in patronsWithLateFees)
-        {
-            Console.WriteLine($"DEBUG: Patron {patron.FirstName} {patron.LastName} has Balance: {patron.Balance}");
-        }
-
         return Results.Ok(patronsWithLateFees);
     }
     catch (Exception ex)
@@ -522,7 +516,112 @@ app.MapGet("api/patrons/lateFees", (LacontesLibraryDbContext db) =>
     }
 });
 
+app.MapGet("/api/checkouts/frontend", (LacontesLibraryDbContext db, IMapper mapper) =>
+{
+    var checkouts = db.Checkouts
+        .Include(checkout => checkout.Material) // Include Material for each checkout
+            .ThenInclude(material => material.MaterialType) // Include MaterialType
+        .Include(checkout => checkout.Material.Genre) // Include Genre
+        .Include(checkout => checkout.Patron) // Include Patron
+        .ToList(); // Load data into memory to handle null checks manually
 
+    var checkoutDTOs = checkouts.Select(checkout => new
+    {
+        CheckoutId = checkout.Id, // Include Checkout ID explicitly
+        CheckoutDate = checkout.CheckoutDate,
+        ReturnDate = checkout.ReturnDate,
+        Material = checkout.Material != null ? new
+        {
+            MaterialId = checkout.Material.Id, // Include Material ID explicitly
+            MaterialName = checkout.Material.MaterialName,
+            MaterialType = checkout.Material.MaterialType != null ? new
+            {
+                Name = checkout.Material.MaterialType.Name,
+                CheckoutDays = checkout.Material.MaterialType.CheckoutDays
+            } : null, // Manual null check for MaterialType
+            Genre = checkout.Material.Genre != null ? checkout.Material.Genre.Name : null // Manual null check for Genre
+        } : null, // Manual null check for Material
+        Patron = checkout.Patron != null ? new
+        {
+            PatronId = checkout.Patron.Id,
+            FirstName = checkout.Patron.FirstName,
+            LastName = checkout.Patron.LastName,
+            Email = checkout.Patron.Email
+        } : null // Manual null check for Patron
+    }).ToList();
+
+    return Results.Ok(checkoutDTOs);
+});
+
+
+app.MapGet("/api/materials/frontend", (LacontesLibraryDbContext db, IMapper mapper) =>
+{
+    var materials = db.Materials
+        .Include(material => material.MaterialType) // Include MaterialType
+        .Include(material => material.Genre) // Include Genre
+        .Include(material => material.Checkouts) // Include Checkouts
+            .ThenInclude(checkout => checkout.Patron) // Include Patron for each checkout
+        .ToList(); // Load data into memory to handle null checks manually
+
+    var materialDTOs = materials.Select(material => new
+    {
+        MaterialId = material.Id, // Include Material ID explicitly
+        MaterialName = material.MaterialName, // Simplified Material Name
+        MaterialType = material.MaterialType != null ? new
+        {
+            Name = material.MaterialType.Name,
+            CheckoutDays = material.MaterialType.CheckoutDays
+        } : null, // Manual null check for MaterialType
+        Genre = material.Genre != null ? material.Genre.Name : null, // Manual null check for Genre
+        Checkouts = material.Checkouts.Select(checkout => new
+        {
+            CheckoutId = checkout.Id, // Explicit Checkout ID
+            CheckoutDate = checkout.CheckoutDate,
+            ReturnDate = checkout.ReturnDate,
+            Patron = checkout.Patron != null ? new
+            {
+                FirstName = checkout.Patron.FirstName,
+                LastName = checkout.Patron.LastName,
+                Email = checkout.Patron.Email
+            } : null // Manual null check for Patron
+        }).ToList()
+    }).ToList();
+
+    return Results.Ok(materialDTOs);
+});
+
+
+app.MapGet("/api/patrons/frontend", (LacontesLibraryDbContext db, IMapper mapper) =>
+{
+    var patrons = db.Patrons
+        .Include(patron => patron.Checkouts) // Include Checkouts for Patron
+            .ThenInclude(checkout => checkout.Material) // Include Material for each checkout
+            .ThenInclude(material => material.MaterialType) // Include MaterialType
+        .Include(patron => patron.Checkouts) // Include Checkouts for Patron
+            .ThenInclude(checkout => checkout.Material.Genre) // Include Genre for Material
+        .ToList(); // Load data into memory to handle null-propagation manually
+
+    var patronDTOs = patrons.Select(patron => new
+    {
+        PatronId = patron.Id, // Include Patron ID explicitly
+        PatronDTO = mapper.Map<PatronDTO>(patron), // Map Patron details
+        Checkouts = patron.Checkouts.Select(checkout => new
+        {
+            CheckoutId = checkout.Id, // Include Checkout ID explicitly
+            CheckoutDTO = new
+            {
+                checkout.CheckoutDate,
+                checkout.ReturnDate
+            },
+            MaterialId = checkout.MaterialId, // Include Material ID explicitly
+            MaterialName = checkout.Material?.MaterialName, // Check for null after data is loaded
+            MaterialType = checkout.Material?.MaterialType != null ? checkout.Material.MaterialType.Name : null, // Manual null check
+            Genre = checkout.Material?.Genre != null ? checkout.Material.Genre.Name : null // Manual null check
+        }).ToList()
+    }).ToList();
+
+    return Results.Ok(patronDTOs);
+});
 
 
 

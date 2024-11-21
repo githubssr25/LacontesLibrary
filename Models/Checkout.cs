@@ -22,22 +22,13 @@ public class Checkout
     public Material Material { get; set; }
     public Patron Patron { get; set; }
 
- public decimal? LateFee
-{
-    get
+    public decimal? LateFee
     {
-        if (Material?.MaterialType == null)
-        {
-            Console.WriteLine($"DEBUG: Material or MaterialType is null for Checkout ID: {Id}");
-            return null;
+        get{
+            if(Material?.MaterialType == null) return null;
+            return FeeCalculator.CalculateLateFee(CheckoutDate, ReturnDate, Material.MaterialType.CheckoutDays);
         }
-
-        var lateFee = FeeCalculator.CalculateLateFee(CheckoutDate, ReturnDate, Material.MaterialType.CheckoutDays);
-        Console.WriteLine($"DEBUG: Calculating LateFee for Checkout ID: {Id}, Material: {Material.MaterialName}, CheckoutDate: {CheckoutDate}, ReturnDate: {ReturnDate}, LateFee: {lateFee}");
-        return lateFee;
     }
-}
-
  // The LateFee property in your code is a calculated property, which means it is not stored in the database. 
  //Instead, its value is computed dynamically whenever the property is accessed.  
  //IMPORTANT: LateFee doesn't exist as a column in the database. 
