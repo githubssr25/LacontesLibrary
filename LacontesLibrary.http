@@ -1,0 +1,6 @@
+@LacontesLibrary_HostAddress = http://localhost:5167
+
+GET {{LacontesLibrary_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
