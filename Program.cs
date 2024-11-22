@@ -8,6 +8,17 @@ using Mapper;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", builder =>
+    {
+        builder.WithOrigins("http://localhost:5173")
+               .AllowAnyHeader()
+               .AllowAnyMethod();
+    });
+});
+
+
 // allows passing datetimes without time zone data 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
@@ -25,7 +36,12 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddAutoMapper(cfg => cfg.AddProfile<MappingProfile>());
 
 
+
 var app = builder.Build();
+
+// Apply CORS policy BEFORE any other middleware
+app.UseCors("AllowFrontend");
+
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -422,34 +438,65 @@ app.MapGet("/api/materials/available", (LacontesLibraryDbContext db) =>
 
 app.MapGet("/api/checkouts/overdue", (LacontesLibraryDbContext db, IMapper mapper) =>
 {
-    return db.Checkouts
-    .Include(p => p.Patron) // p co and m all rep the same variable btw just calling it diff things 
-    .Include(co => co.Material) // Use 'co' here
-    .ThenInclude(m => m.MaterialType) // Use 'm' here
-    .Where(checkout => 
-        (DateTime.Today - checkout.CheckoutDate).Days > 
-        checkout.Material.MaterialType.CheckoutDays &&
-        checkout.ReturnDate == null) // Use 'checkout' here
-    .Select(ourCheckoutDTO => new NSSCheckoutDTO
-    { Id = ourCheckoutDTO.Id, 
-      MaterialId = ourCheckoutDTO.MaterialId,
-      PatronId = ourCheckoutDTO.PatronId,
-      CheckoutDate = ourCheckoutDTO.CheckoutDate,
-      ReturnDate = ourCheckoutDTO.ReturnDate,
-      PatronDTO = mapper.Map<PatronDTO>(ourCheckoutDTO.Patron),
-      MaterialDTO = new NSSMaterialDTO {
-        Id = ourCheckoutDTO.MaterialId,
-        MaterialName = ourCheckoutDTO.Material.MaterialName,
-        MaterialTypeId = ourCheckoutDTO.Material.MaterialTypeId,
-        MaterialTypeDTO = new MaterialTypeDTO{
-            Name = db.MaterialTypes.FirstOrDefault( mt => mt.Id == ourCheckoutDTO.Material.MaterialTypeId).Name,
-            CheckoutDays = db.MaterialTypes.FirstOrDefault( mt => mt.Id == ourCheckoutDTO.Material.MaterialTypeId).CheckoutDays
-        },
-        GenreId = ourCheckoutDTO.Material.GenreId,
-        OutOfCirculationSince = ourCheckoutDTO.Material.OutOfCirculationSince
-      }
+    // Debugging values need to be printed within the logic after fetching from the database
+    var overdueCheckouts = db.Checkouts
+        .Include(p => p.Patron) // Include Patron
+        .Include(co => co.Material) // Include Material
+        .ThenInclude(m => m.MaterialType) // Include MaterialType
+        .Where(checkout =>
+            (DateTime.Today - checkout.CheckoutDate).Days >
+            checkout.Material.MaterialType.CheckoutDays &&
+            checkout.ReturnDate == null) // Filter overdue checkouts
+        .ToList(); // Fetch data to memory for further processing
+
+    // Process and calculate DaysOverdue
+    var result = overdueCheckouts.Select(ourCheckoutDTO =>
+    {
+        var today = DateTime.Today;
+        var checkoutDate = ourCheckoutDTO.CheckoutDate;
+        var allowedCheckoutDays = ourCheckoutDTO.Material.MaterialType.CheckoutDays;
+        var daysSinceCheckout = (today - checkoutDate).Days;
+        var overdueDays = Math.Max(0, daysSinceCheckout - allowedCheckoutDays);
+
+        // Logging for debugging
+        Console.WriteLine("=== Debugging Overdue Calculation ===");
+        Console.WriteLine($"Checkout ID: {ourCheckoutDTO.Id}");
+        Console.WriteLine($"Material Name: {ourCheckoutDTO.Material.MaterialName}");
+        Console.WriteLine($"Checkout Date: {checkoutDate}");
+        Console.WriteLine($"Today: {today}");
+        Console.WriteLine($"Allowed Checkout Days: {allowedCheckoutDays}");
+        Console.WriteLine($"Days Since Checkout: {daysSinceCheckout}");
+        Console.WriteLine($"Days Overdue: {overdueDays}");
+
+        // Return DTO
+        return new NSSCheckoutDTO
+        {
+            Id = ourCheckoutDTO.Id,
+            MaterialId = ourCheckoutDTO.MaterialId,
+            PatronId = ourCheckoutDTO.PatronId,
+            CheckoutDate = checkoutDate,
+            ReturnDate = ourCheckoutDTO.ReturnDate,
+            PatronDTO = mapper.Map<PatronDTO>(ourCheckoutDTO.Patron),
+            MaterialDTO = new NSSMaterialDTO
+            {
+                Id = ourCheckoutDTO.Material.Id,
+                MaterialName = ourCheckoutDTO.Material.MaterialName,
+                MaterialTypeId = ourCheckoutDTO.Material.MaterialTypeId,
+                MaterialTypeDTO = new MaterialTypeDTO
+                {
+                    Name = ourCheckoutDTO.Material.MaterialType.Name,
+                    CheckoutDays = allowedCheckoutDays
+                },
+                GenreId = ourCheckoutDTO.Material.GenreId,
+                OutOfCirculationSince = ourCheckoutDTO.Material.OutOfCirculationSince
+            },
+            DaysOverdue = overdueDays
+        };
     }).ToList();
+
+    return Results.Ok(result);
 });
+
 
 app.MapGet("/api/checkouts/overdue2", (LacontesLibraryDbContext db, IMapper mapper) =>
 {
@@ -625,6 +672,48 @@ app.MapGet("/api/patrons/frontend", (LacontesLibraryDbContext db, IMapper mapper
 
 
 
+app.MapGet("/api/materials/circulation/frontend", (LacontesLibraryDbContext db, IMapper mapper) =>
+{
+    // Filter materials that are still in circulation (OutOfCirculationSince is null)
+    var materialsInCirculation = db.Materials
+        .Where(material => material.OutOfCirculationSince == null) // Include only materials in circulation
+        .Include(material => material.MaterialType) // Include MaterialType
+        .Include(material => material.Genre) // Include Genre
+        .Include(material => material.Checkouts) // Include Checkouts
+            .ThenInclude(checkout => checkout.Patron) // Include Patron for each checkout
+        .Where(material => 
+            !material.Checkouts.Any() ||
+            material.Checkouts.All(checkout => checkout.ReturnDate != null)
+        )
+        .ToList(); // Load data into memory to handle null checks manually
+
+    // Map to the desired DTO structure
+    var materialDTOs = materialsInCirculation.Select(material => new
+    {
+        MaterialId = material.Id, // Include Material ID explicitly
+        MaterialName = material.MaterialName, // Simplified Material Name
+        MaterialType = material.MaterialType != null ? new
+        {
+            Name = material.MaterialType.Name,
+            CheckoutDays = material.MaterialType.CheckoutDays
+        } : null, // Manual null check for MaterialType
+        Genre = material.Genre != null ? material.Genre.Name : null, // Manual null check for Genre
+        Checkouts = material.Checkouts.Select(checkout => new
+        {
+            CheckoutId = checkout.Id, // Explicit Checkout ID
+            CheckoutDate = checkout.CheckoutDate,
+            ReturnDate = checkout.ReturnDate,
+            Patron = checkout.Patron != null ? new
+            {
+                FirstName = checkout.Patron.FirstName,
+                LastName = checkout.Patron.LastName,
+                Email = checkout.Patron.Email
+            } : null // Manual null check for Patron
+        }).ToList()
+    }).ToList();
+
+    return Results.Ok(materialDTOs);
+});
 
 
 

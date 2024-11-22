@@ -74,11 +74,11 @@ modelBuilder.Entity<Material>().HasData(
 
 modelBuilder.Entity<Checkout>().HasData(
     // Overdue checkouts
-    new Checkout { Id = 7, MaterialId = 1, PatronId = 1, CheckoutDate = DateTime.Today.AddDays(-30), ReturnDate = null }, // Dune (9 days late)
-    new Checkout { Id = 8, MaterialId = 2, PatronId = 2, CheckoutDate = DateTime.Today.AddDays(-50), ReturnDate = null }, // 1984 (29 days late)
-    new Checkout { Id = 9, MaterialId = 6, PatronId = 3, CheckoutDate = DateTime.Today.AddDays(-25), ReturnDate = null }, // Harry Potter (11 days late)
-    new Checkout { Id = 10, MaterialId = 10, PatronId = 4, CheckoutDate = DateTime.Today.AddDays(-40), ReturnDate = null }, // The Witcher (26 days late)
-    new Checkout { Id = 11, MaterialId = 8, PatronId = 5, CheckoutDate = DateTime.Today.AddDays(-20), ReturnDate = null }  // The Shining (6 days late)
+    new Checkout { Id = 7, MaterialId = 1, PatronId = 1, CheckoutDate = new DateTime(2024, 9, 1), ReturnDate = null }, // Dune (9 days late)
+    new Checkout { Id = 8, MaterialId = 2, PatronId = 2, CheckoutDate = new DateTime(2024, 9, 30), ReturnDate = null }, // 1984 (29 days late)
+    new Checkout { Id = 9, MaterialId = 6, PatronId = 3, CheckoutDate = new DateTime(2024, 8, 25), ReturnDate = null }, // Harry Potter (11 days late)
+    new Checkout { Id = 10, MaterialId = 10, PatronId = 4, CheckoutDate = new DateTime(2024, 10, 14), ReturnDate = null }, // The Witcher (26 days late)
+    new Checkout { Id = 11, MaterialId = 8, PatronId = 5, CheckoutDate = new DateTime(2024, 10, 25), ReturnDate = null }  // The Shining (6 days late)
 );
 
 

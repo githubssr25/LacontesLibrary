@@ -13,6 +13,8 @@ namespace DTOs
         public PatronDTO? PatronDTO { get; set; }
         public NSSMaterialDTO? MaterialDTO { get; set; } // Include the NSSMaterialDTO
 
+        public int? DaysOverdue { get; set; } // Optional property for days overdue
+
     }
 
 }
