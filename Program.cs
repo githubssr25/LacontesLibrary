@@ -80,39 +80,91 @@ return Results.Ok(materialDTOs);
 
 // to test this one you need query string parameters not path variables 
 // http://localhost:5167/api/materials?materialTypeId=1&genreId=2
+
+//want to change this to be the format we want it which is like other materials 11-23
+// app.MapGet("/api/materialsQueryParams", (LacontesLibraryDbContext db, int? materialTypeId, int? genreId) =>
+// {
+// var materialDTOs = db.Materials
+//     .Where(materialForFilter =>
+//         (materialTypeId.HasValue || genreId.HasValue) && // Ensure at least one is provided
+//         (!materialTypeId.HasValue || materialForFilter.MaterialTypeId == materialTypeId) &&
+//         (!genreId.HasValue || materialForFilter.GenreId == genreId)
+//     )
+//     .Select(materialForDTO => new MaterialDTO
+//     {
+//         MaterialName = materialForDTO.MaterialName,
+//         MaterialTypeId = materialForDTO.MaterialTypeId,
+//         GenreId = materialForDTO.GenreId,
+//         OutOfCirculationSince = materialForDTO.OutOfCirculationSince,
+//         MaterialTypeDTO = db.MaterialTypes
+//             .Where(materialType => materialType.Id == materialForDTO.MaterialTypeId)
+//             .Select(materialTypeVar => new MaterialTypeDTO
+//             {
+//                 Name = materialTypeVar.Name,
+//                 CheckoutDays = materialTypeVar.CheckoutDays
+//             }).FirstOrDefault() ?? new MaterialTypeDTO { Name="unknown no materialTypeDTO was found", CheckoutDays = 0},
+//         GenreDTO = db.Genres
+//             .Where(genre => genre.Id == materialForDTO.GenreId)
+//             .Select(genreVar => new GenreDTO
+//             {
+//                 Name = genreVar.Name
+//             }).FirstOrDefault() ?? new GenreDTO { Name = "Unknown no GenreDTO was found"}
+//     })
+//     .ToList();
+
+
+//     return Results.Ok(materialDTOs);
+// });
+
+
 app.MapGet("/api/materialsQueryParams", (LacontesLibraryDbContext db, int? materialTypeId, int? genreId) =>
 {
-var materialDTOs = db.Materials
-    .Where(materialForFilter =>
-        (materialTypeId.HasValue || genreId.HasValue) && // Ensure at least one is provided
-        (!materialTypeId.HasValue || materialForFilter.MaterialTypeId == materialTypeId) &&
-        (!genreId.HasValue || materialForFilter.GenreId == genreId)
-    )
-    .Select(materialForDTO => new MaterialDTO
-    {
-        MaterialName = materialForDTO.MaterialName,
-        MaterialTypeId = materialForDTO.MaterialTypeId,
-        GenreId = materialForDTO.GenreId,
-        OutOfCirculationSince = materialForDTO.OutOfCirculationSince,
-        MaterialTypeDTO = db.MaterialTypes
-            .Where(materialType => materialType.Id == materialForDTO.MaterialTypeId)
-            .Select(materialTypeVar => new MaterialTypeDTO
-            {
-                Name = materialTypeVar.Name,
-                CheckoutDays = materialTypeVar.CheckoutDays
-            }).FirstOrDefault() ?? new MaterialTypeDTO { Name="unknown no materialTypeDTO was found", CheckoutDays = 0},
-        GenreDTO = db.Genres
-            .Where(genre => genre.Id == materialForDTO.GenreId)
-            .Select(genreVar => new GenreDTO
-            {
-                Name = genreVar.Name
-            }).FirstOrDefault() ?? new GenreDTO { Name = "Unknown no GenreDTO was found"}
-    })
-    .ToList();
+    var materials = db.Materials
+        .Include(material => material.MaterialType) // Include MaterialType
+        .Include(material => material.Genre) // Include Genre
+        .Include(material => material.Checkouts) // Include Checkouts
+            .ThenInclude(checkout => checkout.Patron) // Include Patron for each checkout
+        .Where(material =>
+            (!materialTypeId.HasValue || material.MaterialTypeId == materialTypeId) &&
+            (!genreId.HasValue || material.GenreId == genreId)) // Apply filters
+        .ToList(); // Load data into memory
 
+    // Transform materials to the required structure
+    var materialDTOs = materials.Select(material => new
+    {
+        MaterialId = material.Id,
+        MaterialName = material.MaterialName,
+        MaterialType = new
+        {
+            Name = material.MaterialType?.Name ?? "Unknown",
+            CheckoutDays = material.MaterialType?.CheckoutDays ?? 0
+        },
+        Genre = material.Genre?.Name ?? "Unknown",
+        Checkouts = material.Checkouts.Select(checkout => new
+        {
+            CheckoutId = checkout.Id,
+            CheckoutDate = checkout.CheckoutDate,
+            ReturnDate = checkout.ReturnDate,
+            Patron = checkout.Patron != null ? new
+            {
+                FirstName = checkout.Patron.FirstName,
+                LastName = checkout.Patron.LastName,
+                Email = checkout.Patron.Email
+            } : null
+        }).ToList()
+    }).ToList();
 
     return Results.Ok(materialDTOs);
 });
+
+
+
+
+
+
+
+
+
 
 //The librarians would like to see details for a material. Include the Genre, MaterialType, 
 //and Checkouts (as well as the Patron associated with each checkout using ThenInclude).
@@ -225,22 +277,31 @@ app.MapPut("/api/materials/{id}/remove", async (LacontesLibraryDbContext db, IMa
 app.MapGet("/api/materialtypes", (LacontesLibraryDbContext db, IMapper mapper) =>
 {
     var materialTypeDTOs = db.MaterialTypes
-        .Select(mt => mapper.Map<MaterialTypeDTO>(mt))
+        .Select(mt => new SpecialMaterialTypeDTO
+        {
+            Id = mt.Id, // MaterialTypeId
+            Name = mt.Name,
+            CheckoutDays = mt.CheckoutDays
+        })
         .ToList();
 
     return Results.Ok(materialTypeDTOs);
 });
 
 
-
 app.MapGet("/api/genres", (LacontesLibraryDbContext db, IMapper mapper) =>
 {
-    var genreDTO = db.Genres
-    .Select(genre => mapper.Map<GenreDTO>(genre))
-     .ToList();
+    var genreDTOs = db.Genres
+        .Select(genre => new SpecialGenreDTO
+        {
+            Id = genre.Id, // GenreId
+            Name = genre.Name
+        })
+        .ToList();
 
-    return Results.Ok(genreDTO);
+    return Results.Ok(genreDTOs);
 });
+
 
 //below also could work 
 //var genreDTOs = db.Genres
@@ -317,6 +378,23 @@ app.MapPut("/api/patrons/deactivate/{id}", (LacontesLibraryDbContext db, int id,
     return Results.Ok(ourPatronDTO);
 });
 
+app.MapPut("/api/patrons/reactivate/{id}", (LacontesLibraryDbContext db, int id, IMapper mapper) =>
+{
+    // Retrieve the patron from the database
+    var existingPatron = db.Patrons.Find(id);
+
+    if (existingPatron == null)
+    {
+        return Results.NotFound($"Patron with ID {id} not found.");
+    }
+    // Reactivate the patron
+    existingPatron.IsActive = true;
+    // Save changes
+    db.SaveChanges();
+    // Map the updated patron to PatronDTO
+    var ourPatronDTO = mapper.Map<PatronDTO>(existingPatron);
+    return Results.Ok(ourPatronDTO);
+});
 
 
 app.MapPost("/api/checkouts", async (LacontesLibraryDbContext db, IMapper mapper, CreateCheckoutDTO createCheckoutDTO) =>
@@ -607,7 +685,8 @@ app.MapGet("/api/materials/frontend", (LacontesLibraryDbContext db, IMapper mapp
         .Include(material => material.MaterialType) // Include MaterialType
         .Include(material => material.Genre) // Include Genre
         .Include(material => material.Checkouts) // Include Checkouts
-            .ThenInclude(checkout => checkout.Patron) // Include Patron for each checkout
+            .ThenInclude(checkout => checkout.Patron)
+             // Include Patron for each checkout
         .ToList(); // Load data into memory to handle null checks manually
 
     var materialDTOs = materials.Select(material => new
